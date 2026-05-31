@@ -182,3 +182,4 @@ docs: document MyNewRule in alert-rules.md
 - [ ] `cargo fmt` applied
 - [ ] New rule documented in `docs/alert-rules.md`
 - [ ] CONTRIBUTING.md updated if the contribution process changed
+- [ ] CHANGELOG.md entry added under [Unreleased] describing what changed

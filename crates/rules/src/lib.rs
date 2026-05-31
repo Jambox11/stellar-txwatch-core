@@ -164,7 +164,10 @@ fn eval_rule(rule: &AlertRule, tx: &EnrichedTransaction) -> Result<bool> {
         AlertRule::AdminFunctionCalled { function_names } => tx
             .function_name
             .as_deref()
-            .map(|f| function_names.iter().any(|n| n == f))
+            .map(|f| {
+                let f_lower = f.to_lowercase();
+                function_names.iter().any(|n| n.to_lowercase() == f_lower)
+            })
             .unwrap_or(false),
 
         AlertRule::HighFee { threshold_stroops } => tx
@@ -301,6 +304,19 @@ mod tests {
         );
         assert_eq!(payloads.len(), 1);
         assert!(payloads[0].rule_triggered.contains("upgrade"));
+    }
+
+    #[test]
+    fn admin_function_called_mixed_case_config_matches_lowercase_onchain() {
+        // Config has "Set_Admin" (mixed-case); on-chain function is "set_admin"
+        let tx = make_tx(true, Some("set_admin"), None);
+        let payloads = run(
+            &[AlertRule::AdminFunctionCalled {
+                function_names: vec!["Set_Admin".into(), "UPGRADE".into()],
+            }],
+            &tx,
+        );
+        assert_eq!(payloads.len(), 1);
     }
 
     #[test]

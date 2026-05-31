@@ -63,7 +63,7 @@ pub enum AlertRule {
 }
 
 impl AlertRule {
-    pub fn validate(&self, contract_label: &str) -> Result<()> {
+    pub fn validate(&mut self, contract_label: &str) -> Result<()> {
         match self {
             AlertRule::LargeTransfer { threshold_xlm } => {
                 if *threshold_xlm == 0 {
@@ -88,13 +88,14 @@ impl AlertRule {
                         contract_label
                     );
                 }
-                for name in function_names {
+                for name in function_names.iter_mut() {
                     if name.trim().is_empty() {
                         bail!(
                             "contract '{}': AdminFunctionCalled contains a blank function name",
                             contract_label
                         );
                     }
+                    *name = name.to_lowercase();
                 }
             }
             AlertRule::AnyTransaction | AlertRule::TransactionFailed => {}
@@ -125,7 +126,7 @@ pub struct WatchedContract {
 }
 
 impl WatchedContract {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&mut self) -> Result<()> {
         if self.label.trim().is_empty() {
             bail!("a contract has an empty label");
         }
@@ -152,8 +153,9 @@ impl WatchedContract {
             bail!("contract '{}': at least one rule is required", self.label);
         }
 
-        for rule in &self.rules {
-            rule.validate(&self.label)?;
+        let label = self.label.clone();
+        for rule in &mut self.rules {
+            rule.validate(&label)?;
         }
 
         Ok(())
@@ -172,13 +174,13 @@ impl AppConfig {
     pub fn from_file(path: &Path) -> Result<Self> {
         let raw = fs::read_to_string(path)
             .with_context(|| format!("cannot read config file '{}'", path.display()))?;
-        let cfg: AppConfig = toml::from_str(&raw)
+        let mut cfg: AppConfig = toml::from_str(&raw)
             .with_context(|| format!("failed to parse config file '{}'", path.display()))?;
         cfg.validate()?;
         Ok(cfg)
     }
 
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&mut self) -> Result<()> {
         if self.poll_interval_seconds == 0 {
             bail!("poll_interval_seconds must be > 0");
         }
@@ -188,7 +190,7 @@ impl AppConfig {
         if self.contracts.is_empty() {
             bail!("at least one [[contracts]] entry is required");
         }
-        for contract in &self.contracts {
+        for contract in &mut self.contracts {
             contract.validate()?;
         }
         Ok(())
@@ -214,7 +216,7 @@ mod tests {
 
     #[test]
     fn valid_config_passes() {
-        let c = valid_contract();
+        let mut c = valid_contract();
         assert!(c.validate().is_ok());
     }
 
@@ -268,6 +270,20 @@ mod tests {
     }
 
     #[test]
+    fn admin_function_names_normalised_to_lowercase() {
+        let mut c = valid_contract();
+        c.rules = vec![AlertRule::AdminFunctionCalled {
+            function_names: vec!["Set_Admin".into(), "UPGRADE".into()],
+        }];
+        c.validate().unwrap();
+        if let AlertRule::AdminFunctionCalled { function_names } = &c.rules[0] {
+            assert_eq!(function_names, &["set_admin", "upgrade"]);
+        } else {
+            panic!("expected AdminFunctionCalled");
+        }
+    }
+
+    #[test]
     fn network_urls() {
         assert!(Network::Mainnet.horizon_base_url().contains("horizon.stellar.org"));
         assert!(Network::Testnet.horizon_base_url().contains("testnet"));
@@ -299,7 +315,7 @@ mod tests {
             [[contracts.rules]]
             type = "AnyTransaction"
         "#;
-        let cfg: AppConfig = toml::from_str(raw).unwrap();
+        let mut cfg: AppConfig = toml::from_str(raw).unwrap();
         assert!(cfg.validate().is_err());
     }
 }

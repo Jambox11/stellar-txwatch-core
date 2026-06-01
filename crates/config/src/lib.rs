@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
-use std::{fmt, fs, path::Path};
+use serde::{Deserialize, Serialize};
+use std::{env, fmt, fs, path::Path};
+use url::Url;
 
 // ── Network ───────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
     Mainnet,
@@ -58,7 +59,7 @@ impl fmt::Display for Network {
 
 // ── AlertRule ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum AlertRule {
     AnyTransaction,
@@ -122,7 +123,7 @@ impl AlertRule {
 
 // ── WatchedContract ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WatchedContract {
     pub label:       String,
     pub contract_id: String,
@@ -196,7 +197,7 @@ impl WatchedContract {
 /// potentially exhausting memory or file descriptors.
 pub const MAX_CONTRACTS: usize = 100;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppConfig {
     pub poll_interval_seconds: u64,
     pub contracts: Vec<WatchedContract>,
@@ -249,6 +250,16 @@ impl AppConfig {
         cfg.resolve_env_vars()?;
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Resolve `${ENV_VAR}` interpolation in `webhook_secret` fields.
+    fn resolve_env_vars(&mut self) -> Result<()> {
+        for contract in &mut self.contracts {
+            if let Some(secret) = &contract.webhook_secret {
+                contract.webhook_secret = Some(resolve_env_interpolation(secret)?);
+            }
+        }
+        Ok(())
     }
 
     pub fn validate(&mut self) -> Result<()> {
@@ -430,9 +441,12 @@ mod tests {
     #[test]
     fn rejects_duplicate_labels() {
         let c = valid_contract();
-        let cfg = AppConfig {
+        let mut cfg = AppConfig {
             poll_interval_seconds: 10,
             contracts: vec![c.clone(), c],
+            http_pool_max_idle_per_host: None,
+            http_tcp_keepalive_secs: None,
+            http_connection_verbose: None,
         };
         let err = cfg.validate().unwrap_err();
         assert!(err.to_string().contains("duplicate contract label"));
@@ -461,5 +475,34 @@ mod tests {
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("txwatch_nonexistent_test_config.toml"));
+    }
+
+    // ── Issue #115: Serialize round-trip ──────────────────────────────────────
+
+    #[test]
+    fn config_round_trips_through_serialize_deserialize() {
+        let contract = WatchedContract {
+            label:       "Round-trip Contract".into(),
+            contract_id: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
+            network:     Network::Testnet,
+            rules:       vec![
+                AlertRule::AnyTransaction,
+                AlertRule::LargeTransfer { threshold_xlm: 5000 },
+                AlertRule::AdminFunctionCalled {
+                    function_names: vec!["set_admin".into()],
+                },
+            ],
+            webhook_url:    "https://example.com/hook".into(),
+            webhook_secret: None,
+            horizon_base_url_override: None,
+        };
+        let json = serde_json::to_string(&contract).expect("serialize failed");
+        let restored: WatchedContract =
+            serde_json::from_str(&json).expect("deserialize failed");
+        assert_eq!(restored.label, contract.label);
+        assert_eq!(restored.contract_id, contract.contract_id);
+        assert_eq!(restored.network, contract.network);
+        assert_eq!(restored.webhook_url, contract.webhook_url);
+        assert_eq!(restored.rules.len(), contract.rules.len());
     }
 }

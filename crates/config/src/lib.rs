@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::{fs, path::Path};

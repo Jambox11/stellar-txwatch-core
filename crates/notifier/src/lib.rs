@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use reqwest::Client;

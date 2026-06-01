@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+//! txwatch-notifier delivers webhook payloads over HTTP with retry and backoff,
+//! exposing `send_webhook` and `test_payload` helpers for webhook delivery.
+
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+//! txwatch-config parses `config.toml`, validates contracts and rule definitions,
+//! and exposes `AppConfig`, `WatchedContract`, and `AlertRule` for the CLI and poller.
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::{fmt, fs, path::Path};

@@ -85,6 +85,22 @@ that simulate Horizon and webhook endpoints. No network access is required.
 
 ---
 
+## Dependency lock files
+
+`Cargo.lock` is committed to this repository. This workspace contains both
+a binary crate (`crates/cli`) and library crates, and we commit the lock
+file to ensure reproducible builds of the binary.
+
+**When submitting a pull request:**
+
+- If you update dependencies (directly or indirectly), commit the updated `Cargo.lock`
+- Use `cargo update` to update dependencies, then commit the resulting lock file
+- Do not remove or exclude `Cargo.lock` from commits
+
+This ensures all contributors and CI builds use the exact same dependency versions.
+
+---
+
 ## How to add a new `AlertRule` type
 
 Follow these steps in order. Each step is in a different file.

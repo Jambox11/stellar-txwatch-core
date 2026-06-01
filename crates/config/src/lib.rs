@@ -125,6 +125,7 @@ impl AlertRule {
 // ── WatchedContract ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WatchedContract {
     pub label:       String,
     pub contract_id: String,
@@ -199,6 +200,7 @@ impl WatchedContract {
 pub const MAX_CONTRACTS: usize = 100;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfig {
     pub poll_interval_seconds: u64,
     pub contracts: Vec<WatchedContract>,

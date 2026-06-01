@@ -69,10 +69,10 @@ impl EnrichedTransaction {
         })?;
 
         Ok(Self {
-            hash: tx.hash,
+            hash:          tx.hash,
             timestamp,
-            successful: tx.successful,
-            paging_token: tx.paging_token,
+            successful:    tx.successful,
+            paging_token:  tx.paging_token,
             function_names,
             amount_stroops,
             fee_charged_stroops: fee_charged_stroops.or_else(|| {
@@ -101,7 +101,8 @@ pub struct AlertPayload {
     /// All invoked function names in this transaction.
     pub function_names: Vec<String>,
     /// Amount in whole XLM (stroops / 10_000_000), present for LargeTransfer.
-    pub amount_xlm:       Option<u64>,
+    #[serde(rename = "amount_xlm")]
+    pub amount_xlm: Option<u64>,
     /// Fee charged in stroops.
     pub fee_charged_stroops: Option<u64>,
     /// Unix timestamp (seconds).
@@ -127,7 +128,7 @@ pub fn evaluate(
     rules: &[AlertRule],
     tx: &EnrichedTransaction,
 ) -> Vec<AlertPayload> {
-    let horizon_link = format!("{}/transactions/{}", horizon_base, tx.hash);
+    let horizon_link  = format!("{}/transactions/{}", horizon_base, tx.hash);
     let explorer_link = format!("{}/tx/{}", explorer_base, tx.hash);
     let timestamp = tx.timestamp.timestamp();
     let timestamp_iso = tx.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -198,7 +199,7 @@ fn eval_rule(rule: &AlertRule, tx: &EnrichedTransaction) -> Result<bool> {
                 function_names.iter().any(|n| n.to_lowercase() == f_lower)
             }),
 
-        AlertRule::HighFee { threshold_stroops } => tx
+        AlertRule::HighFee { threshold_stroops, .. } => tx
             .fee_charged_stroops
             .map(|f| f >= *threshold_stroops)
             .unwrap_or(false),
@@ -219,8 +220,12 @@ fn rule_label(rule: &AlertRule) -> String {
         AlertRule::AdminFunctionCalled { function_names } => {
             format!("AdminFunctionCalled([{}])", function_names.join(", "))
         }
-        AlertRule::HighFee { threshold_stroops } => {
-            format!("HighFee(>={} stroops)", threshold_stroops)
+        AlertRule::HighFee { threshold_stroops, threshold_xlm } => {
+            if let Some(xlm) = threshold_xlm {
+                format!("HighFee(>={} XLM)", xlm)
+            } else {
+                format!("HighFee(>={} stroops)", threshold_stroops)
+            }
         }
     }
 }
@@ -258,8 +263,8 @@ mod tests {
         amount_stroops: Option<u64>,
     ) -> EnrichedTransaction {
         EnrichedTransaction {
-            hash: "abc123".into(),
-            timestamp: "2024-01-15T12:00:00Z".parse().unwrap(),
+            hash:           "abc123".into(),
+            timestamp:      "2024-01-15T12:00:00Z".parse().unwrap(),
             successful,
             paging_token: "100".into(),
             function_names: function_names.iter().map(|s| s.to_string()).collect(),
@@ -462,6 +467,7 @@ mod tests {
         let payloads = run(
             &[AlertRule::HighFee {
                 threshold_stroops: 10_000,
+                threshold_xlm:     None,
             }],
             &tx,
         );
@@ -476,6 +482,7 @@ mod tests {
         let payloads = run(
             &[AlertRule::HighFee {
                 threshold_stroops: 10_000,
+                threshold_xlm:     None,
             }],
             &tx,
         );
@@ -488,6 +495,7 @@ mod tests {
         let payloads = run(
             &[AlertRule::HighFee {
                 threshold_stroops: 1,
+                threshold_xlm:     None,
             }],
             &tx,
         );

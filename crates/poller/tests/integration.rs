@@ -11,7 +11,6 @@ mod helpers;
 
 use std::time::Duration;
 
-use reqwest::Client;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -114,7 +113,7 @@ async fn any_transaction_fires_webhook() {
         .mount(&receiver)
         .await;
 
-    let client   = Client::new();
+    let client = txwatch_notifier::build_client().unwrap();
     let contract = helpers::contract(
         &format!("{}/hook", receiver.uri()),
         vec![AlertRule::AnyTransaction],
@@ -194,7 +193,7 @@ async fn transaction_failed_rule_fires_only_on_failure() {
         .mount(&receiver)
         .await;
 
-    let client   = Client::new();
+    let client = txwatch_notifier::build_client().unwrap();
     let contract = helpers::contract(
         &format!("{}/hook", receiver.uri()),
         vec![AlertRule::TransactionFailed],
@@ -244,7 +243,7 @@ async fn large_transfer_fires_above_threshold() {
         .mount(&receiver)
         .await;
 
-    let client   = Client::new();
+    let client = txwatch_notifier::build_client().unwrap();
     let contract = helpers::contract(
         &format!("{}/hook", receiver.uri()),
         vec![AlertRule::LargeTransfer { threshold_xlm: 5_000 }],
@@ -285,7 +284,7 @@ async fn function_called_rule_fires_on_exact_match() {
         .mount(&receiver)
         .await;
 
-    let client   = Client::new();
+    let client = txwatch_notifier::build_client().unwrap();
     let contract = helpers::contract(
         &format!("{}/hook", receiver.uri()),
         vec![AlertRule::FunctionCalled { function_name: "withdraw".into() }],
@@ -388,7 +387,7 @@ async fn high_fee_rule_fires_on_fee_charged() {
     let client   = Client::new();
     let contract = helpers::contract(
         &format!("{}/hook", receiver.uri()),
-        vec![AlertRule::HighFee { threshold_stroops: 10_000 }],
+        vec![AlertRule::HighFee { threshold_stroops: 10_000, threshold_xlm: None }],
     );
 
     let tx = EnrichedTransaction::from_horizon(

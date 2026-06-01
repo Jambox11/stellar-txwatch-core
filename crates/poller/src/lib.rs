@@ -63,8 +63,9 @@ struct Counters {
 /// Logs a summary every 60 seconds: contracts watched, transactions processed,
 /// alerts fired.
 pub async fn run(cfg: AppConfig) -> Result<()> {
-    // Build HTTP client with connection pool tuning options.
-    let max_idle = cfg.http_pool_max_idle_per_host.unwrap_or(10);
+    // Build HTTP client: start from the shared base configuration (timeout, etc.)
+    // then apply pool-tuning options from the app config.
+    let max_idle       = cfg.http_pool_max_idle_per_host.unwrap_or(10);
     let keepalive_secs = cfg.http_tcp_keepalive_secs.unwrap_or(30);
 
     let client = Client::builder()
@@ -417,7 +418,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = txwatch_notifier::build_client().unwrap();
         let url = format!(
             "{}/accounts/{}/transactions?cursor=now&order=asc&limit=200",
             server.uri(),
@@ -436,7 +437,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = txwatch_notifier::build_client().unwrap();
         let (fn_names, amount) =
             fetch_soroban_details(&client, &server.uri(), "abc123").await.unwrap();
 
@@ -456,7 +457,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = txwatch_notifier::build_client().unwrap();
         let (fn_names, amount) =
             fetch_soroban_details(&client, &server.uri(), "abc123").await.unwrap();
 
@@ -474,7 +475,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = txwatch_notifier::build_client().unwrap();
         let (fn_names, amount) =
             fetch_soroban_details(&client, &server.uri(), "abc123").await.unwrap();
 
@@ -524,28 +525,28 @@ mod tests {
             http_connection_verbose: None,
             contracts: vec![
                 WatchedContract {
-                    label: "Contract A".into(),
+                    label:      "Contract A".into(),
                     contract_id: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
-                    network: txwatch_config::Network::Testnet,
-                    rules: vec![txwatch_config::AlertRule::AnyTransaction],
+                    network:    txwatch_config::Network::Testnet,
+                    rules:      vec![txwatch_config::AlertRule::AnyTransaction],
                     webhook_url: "https://hooks.example.com/a".into(),
                     webhook_secret: None,
                     horizon_base_url_override: None,
                 },
                 WatchedContract {
-                    label: "Contract B".into(),
+                    label:      "Contract B".into(),
                     contract_id: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".into(),
-                    network: txwatch_config::Network::Mainnet,
-                    rules: vec![txwatch_config::AlertRule::AnyTransaction],
+                    network:    txwatch_config::Network::Mainnet,
+                    rules:      vec![txwatch_config::AlertRule::AnyTransaction],
                     webhook_url: "https://hooks.example.com/b".into(),
                     webhook_secret: None,
                     horizon_base_url_override: None,
                 },
                 WatchedContract {
-                    label: "Contract C".into(),
+                    label:      "Contract C".into(),
                     contract_id: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".into(),
-                    network: txwatch_config::Network::Mainnet,
-                    rules: vec![txwatch_config::AlertRule::AnyTransaction],
+                    network:    txwatch_config::Network::Mainnet,
+                    rules:      vec![txwatch_config::AlertRule::AnyTransaction],
                     webhook_url: "https://hooks.example.com/c".into(),
                     webhook_secret: None,
                     horizon_base_url_override: None,

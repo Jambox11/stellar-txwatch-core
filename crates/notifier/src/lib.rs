@@ -34,7 +34,7 @@ pub async fn send_webhook(
     for attempt in 1..=MAX_RETRIES {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| Duration::from_secs(0))
             .as_secs();
 
         let mut req = client

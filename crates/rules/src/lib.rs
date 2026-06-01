@@ -3,6 +3,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use txwatch_config::AlertRule;
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+/// Maximum XLM supply in stroops: 50 billion XLM × 10^7 stroops/XLM.
+/// The total Stellar XLM supply is capped at ~50 billion XLM. This constant serves
+/// as a reference for validating that u64 is sufficient for any realistic transaction
+/// amount, since 500 trillion is well below u64::MAX (18.4 quintillion).
+pub const MAX_XLM_SUPPLY_STROOPS: u64 = 500_000_000_000_000_000;
+
 // ── Horizon transaction shape ─────────────────────────────────────────────────
 
 /// Raw Horizon transaction record as returned by the REST API.
@@ -35,6 +43,9 @@ pub struct EnrichedTransaction {
     /// Soroban contract function that was invoked, if any.
     pub function_name: Option<String>,
     /// Transfer amount in stroops (1 XLM = 10_000_000 stroops), if detected.
+    /// Uses u64 because the total XLM supply is ~50 billion XLM = ~500 trillion stroops,
+    /// which is well within u64::MAX (18.4 quintillion). This type is sufficient for any
+    /// realistic transaction amount on the Stellar network.
     pub amount_stroops: Option<u64>,
     /// Fee charged for this transaction in stroops.
     pub fee_charged_stroops: Option<u64>,

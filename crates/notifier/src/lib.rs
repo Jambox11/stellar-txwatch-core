@@ -81,6 +81,7 @@ pub async fn send_webhook(
 }
 
 /// Build a synthetic `AlertPayload` suitable for `test-webhook`.
+/// Uses the provided network name and horizon base URL, falling back to testnet defaults if not provided.
 pub fn test_payload(label: &str, webhook_url: &str) -> AlertPayload {
     let now = Utc::now();
     AlertPayload {

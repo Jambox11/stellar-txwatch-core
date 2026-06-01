@@ -533,3 +533,77 @@ async fn run_polls_once_and_skips_webhook_in_dry_run() {
 
     // MockServer drop verifies that 0 webhooks were received.
 }
+
+/// horizon_link in webhook payloads always points to the canonical Horizon URL
+/// even when polling against a mock server (horizon_base_url_override set). Closes #92.
+#[tokio::test]
+async fn horizon_link_uses_canonical_url_not_mock_server() {
+    let horizon = MockServer::start().await;
+    let receiver = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path_regex("/accounts/.*/transactions"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(helpers::tx_page("link_tx", "1", true)),
+        )
+        .up_to_n_times(1)
+        .mount(&horizon)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path_regex("/accounts/.*/transactions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(helpers::empty_page()))
+        .mount(&horizon)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/transactions/link_tx/operations"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(helpers::empty_page()))
+        .mount(&horizon)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/hook"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&receiver)
+        .await;
+
+    let mut contract = helpers::contract(
+        &format!("{}/hook", receiver.uri()),
+        vec![AlertRule::AnyTransaction],
+    );
+    contract.horizon_base_url_override = Some(horizon.uri());
+
+    let canonical_base = txwatch_config::Network::Testnet.horizon_base_url();
+
+    let cfg = AppConfig {
+        poll_interval_seconds: 1,
+        contracts: vec![contract],
+        http_pool_max_idle_per_host: None,
+        http_tcp_keepalive_secs: None,
+        http_connection_verbose: None,
+    };
+
+    let _ = tokio::time::timeout(Duration::from_millis(1500), txwatch_poller::run(cfg)).await;
+
+    let requests = receiver.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1, "expected exactly 1 webhook POST");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(&requests[0].body).expect("webhook body is JSON");
+    let horizon_link = body["horizon_link"]
+        .as_str()
+        .expect("horizon_link field present");
+
+    assert!(
+        horizon_link.starts_with(canonical_base),
+        "horizon_link should start with canonical URL '{}', got: {}",
+        canonical_base,
+        horizon_link
+    );
+    assert!(
+        !horizon_link.starts_with("http://127.0.0.1"),
+        "horizon_link must not point to mock server, got: {}",
+        horizon_link
+    );
+}

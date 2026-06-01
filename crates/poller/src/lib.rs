@@ -168,13 +168,17 @@ async fn poll_contract(
         .cloned()
         .unwrap_or_else(|| "now".to_string());
 
-    let base = contract
+    // `poll_base` is used for all Horizon HTTP requests (may be overridden in tests).
+    // `canonical_base` is always the production Horizon URL and is used only for
+    // building horizon_link in payloads, so links always point to the real network.
+    let poll_base = contract
         .horizon_base_url_override
         .as_deref()
         .unwrap_or_else(|| contract.network.horizon_base_url());
+    let canonical_base = contract.network.horizon_base_url();
     let url = format!(
         "{}/accounts/{}/transactions?cursor={}&order=asc&limit=200",
-        base, contract.contract_id, cursor
+        poll_base, contract.contract_id, cursor
     );
 
     let page: HorizonPage = client
@@ -214,7 +218,7 @@ async fn poll_contract(
         cursors.insert(contract.contract_id.clone(), paging_token.clone());
 
         let (function_names, amount_stroops) =
-            match fetch_soroban_details(client, base, &tx_hash).await {
+            match fetch_soroban_details(client, poll_base, &tx_hash).await {
                 Ok(details) => details,
                 Err(e) => {
                     warn!(
@@ -247,7 +251,7 @@ async fn poll_contract(
             &contract.label,
             &contract.contract_id,
             contract.network.as_str(),
-            base,
+            canonical_base,
             contract.network.explorer_base_url(),
             &contract.rules,
             &enriched,

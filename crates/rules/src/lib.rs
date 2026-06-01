@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]
 
+//! txwatch-rules evaluates `AlertRule` conditions against enriched Stellar transactions
+//! and constructs structured `AlertPayload` webhook bodies.
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -1,3 +1,6 @@
+//! txwatch-poller runs the Horizon polling loop, enriches transactions, evaluates rules,
+//! and sends webhook alerts through `txwatch-notifier`.
+
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicU64, Ordering},

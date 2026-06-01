@@ -128,7 +128,11 @@ pub struct WatchedContract {
     pub rules:       Vec<AlertRule>,
     pub webhook_url: String,
     /// Optional secret sent as X-TxWatch-Secret header on every webhook POST.
+    /// Supports `${ENV_VAR}` interpolation (e.g. `webhook_secret = "${MY_SECRET}"`).
     pub webhook_secret: Option<String>,
+    /// Override the Horizon base URL; never read from TOML — set programmatically in tests.
+    #[serde(skip, default)]
+    pub horizon_base_url_override: Option<String>,
 }
 
 impl WatchedContract {
@@ -199,12 +203,28 @@ fn default_http_tcp_keepalive_secs() -> Option<u64> {
     None
 }
 
+// ── Env-var interpolation ─────────────────────────────────────────────────────
+
+/// Resolves a `${VAR_NAME}` reference to the corresponding environment variable.
+/// Values that don't match the `${...}` pattern are returned unchanged.
+fn resolve_env_interpolation(value: &str) -> Result<String> {
+    match value
+        .strip_prefix("${")
+        .and_then(|s| s.strip_suffix('}'))
+    {
+        Some(var_name) => env::var(var_name)
+            .with_context(|| format!("env var '{}' referenced in config is not set", var_name)),
+        None => Ok(value.to_owned()),
+    }
+}
+
 impl AppConfig {
     pub fn from_file(path: &Path) -> Result<Self> {
         let raw = fs::read_to_string(path)
             .with_context(|| format!("cannot read config file '{}'", path.display()))?;
         let mut cfg: AppConfig = toml::from_str(&raw)
             .with_context(|| format!("failed to parse config file '{}'", path.display()))?;
+        cfg.resolve_env_vars()?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -246,6 +266,7 @@ mod tests {
             rules:          vec![AlertRule::AnyTransaction],
             webhook_url:    "https://example.com/hook".into(),
             webhook_secret: None,
+            horizon_base_url_override: None,
         }
     }
 

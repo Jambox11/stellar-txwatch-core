@@ -4,7 +4,6 @@
 //! exposing `send_webhook` and `test_payload` helpers for webhook delivery.
 
 use anyhow::{anyhow, Result};
-use chrono::Utc;
 use reqwest::Client;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, span, warn, Level};
@@ -43,6 +42,7 @@ pub async fn send_webhook(
     url: &str,
     payload: &AlertPayload,
     secret: Option<&str>,
+    mut shutdown: oneshot::Receiver<()>,
 ) -> Result<DeliveryResult> {
     let span = span!(Level::INFO, "send_webhook", contract = %payload.label, rule = %payload.rule_triggered);
     let _enter = span.enter();
@@ -113,7 +113,12 @@ pub async fn send_webhook(
         }
 
         if attempt < MAX_RETRIES {
-            tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))) => {}
+                _ = &mut shutdown => {
+                    return Err(anyhow!("webhook retry aborted: shutdown signal received"));
+                }
+            }
         }
     }
 
@@ -186,6 +191,10 @@ mod tests {
             horizon_link:        "https://horizon-testnet.stellar.org/transactions/abc123".into(),
             explorer_link:       "https://stellar.expert/explorer/testnet/tx/abc123".into(),
         }
+    }
+
+    fn dummy_shutdown() -> oneshot::Receiver<()> {
+        oneshot::channel().1
     }
 
     #[tokio::test]
@@ -326,13 +335,33 @@ mod tests {
         let url    = format!("{}/hook", server.uri());
         let result = send_webhook(&client, &url, &sample_payload(), None).await;
         assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("shutdown"), "error should mention shutdown, got: {}", msg);
     }
 
+    /// Issue #13: test_payload produces a structurally valid AlertPayload (56-char contract ID).
     #[test]
-    fn test_payload_builds_without_panic() {
+    fn test_payload_is_structurally_valid() {
         let p = test_payload("My Contract", "https://example.com/hook");
         assert!(p.label.contains("My Contract"));
         assert_eq!(p.rule_triggered, "TestWebhook");
+        assert_eq!(p.contract_id.len(), 56, "contract_id must be 56 characters");
+        assert!(p.contract_id.starts_with('C'), "contract_id must start with 'C'");
+        assert!(p.horizon_link.contains("/transactions/"), "horizon_link must contain /transactions/");
+        assert!(p.explorer_link.contains("stellar.expert"), "explorer_link must point to stellar.expert");
+    }
+
+    /// Issue #13: test_payload_with_network derives links from the supplied network config.
+    #[test]
+    fn test_payload_with_network_derives_links_from_config() {
+        let p = test_payload_with_network(
+            "Label",
+            "https://example.com/hook",
+            "mainnet",
+            "https://horizon.stellar.org",
+        );
+        assert!(p.horizon_link.starts_with("https://horizon.stellar.org/transactions/"));
+        assert!(p.explorer_link.contains("/mainnet/"));
     }
 
     #[tokio::test]

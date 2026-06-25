@@ -4,7 +4,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_path_to_error::Deserializer as PathDeserializer;
+use serde_path_to_error::Track;
+use std::env;
 use std::{fmt, fs, path::Path};
 use url::Url;
 
@@ -64,6 +65,13 @@ impl fmt::Display for Network {
 
 // ── AlertRule ─────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchMode {
+    Any,
+    None,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum AlertRule {
@@ -80,6 +88,14 @@ pub enum AlertRule {
         threshold_stroops: u64,
         #[serde(default)]
         threshold_xlm: Option<u64>,
+    },
+    SourceAccountMatch {
+        account_ids: Vec<String>,
+        match_mode: MatchMode,
+    },
+    FunctionCalledWithAmount {
+        function_name: String,
+        threshold_xlm: u64,
     },
 }
 
@@ -153,6 +169,37 @@ impl AlertRule {
                     _ => {}
                 }
             }
+            AlertRule::SourceAccountMatch { account_ids, .. } => {
+                if account_ids.is_empty() {
+                    bail!(
+                        "contract '{}': SourceAccountMatch account_ids must not be empty",
+                        contract_label
+                    );
+                }
+                for id in account_ids {
+                    if !id.starts_with('G') || id.len() != 56 {
+                        bail!(
+                            "contract '{}': SourceAccountMatch account_id '{}' must start with 'G' and be 56 characters",
+                            contract_label,
+                            id
+                        );
+                    }
+                }
+            }
+            AlertRule::FunctionCalledWithAmount { function_name, threshold_xlm } => {
+                if function_name.trim().is_empty() {
+                    bail!(
+                        "contract '{}': FunctionCalledWithAmount function_name must not be empty",
+                        contract_label
+                    );
+                }
+                if *threshold_xlm == 0 {
+                    bail!(
+                        "contract '{}': FunctionCalledWithAmount threshold_xlm must be > 0",
+                        contract_label
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -175,6 +222,16 @@ impl AlertRule {
                 } else {
                     format!("HighFee(>={} stroops)", threshold_stroops)
                 }
+            }
+            AlertRule::SourceAccountMatch { account_ids, match_mode } => {
+                let mode_str = match match_mode {
+                    MatchMode::Any => "any",
+                    MatchMode::None => "none",
+                };
+                format!("SourceAccountMatch({}, mode={})", account_ids.join("|"), mode_str)
+            }
+            AlertRule::FunctionCalledWithAmount { function_name, threshold_xlm } => {
+                format!("FunctionCalledWithAmount({}>={}XLM)", function_name, threshold_xlm)
             }
         }
     }}
@@ -292,19 +349,21 @@ fn default_http_tcp_keepalive_secs() -> Option<u64> {
     None
 }
 
-fn deserialize_toml_with_field_context<'de, T>(raw: &'de str, path: &Path) -> Result<T>
+fn deserialize_toml_with_field_context<'de, T>(raw: &'de str, _path: &Path) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    let mut deserializer = toml::Deserializer::new(raw);
-    let mut path_deserializer = PathDeserializer::new(&mut deserializer);
-    T::deserialize(&mut path_deserializer).map_err(|error| {
+    let deserializer = toml::Deserializer::new(raw);
+    let mut track = Track::new();
+    serde_path_to_error::deserialize::<_, T>(
+        serde_path_to_error::Deserializer::new(deserializer, &mut track),
+    )
+    .map_err(|error| {
         let path = error.path().to_string();
-        let inner = error.into_inner();
         let message = if path.is_empty() {
-            inner.to_string()
+            error.inner().to_string()
         } else {
-            format!("{} (field: {})", inner, path)
+            format!("{} (field: {})", error.inner(), path)
         };
         anyhow!(message)
     })
@@ -624,11 +683,14 @@ mod tests {
         for val in 0u64..5 {
             let mut cfg = AppConfig {
                 poll_interval_seconds: val,
+                contracts: vec![],
                 http_pool_max_idle_per_host: None,
                 http_tcp_keepalive_secs: None,
                 http_connection_verbose: None,
+                cursor_file: None,
             };
             let err = cfg.validate().unwrap_err();
+            assert!(
                 err.to_string().contains("poll_interval_seconds must be >= 5"),
                 "val={} should be rejected: {}", val, err
             );

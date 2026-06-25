@@ -175,25 +175,17 @@ pub async fn run_with(cfg: AppConfig, dry_run: bool) -> Result<()> {
     let counters_for_summary = Arc::clone(&counters);
     let _summary_guard = tokio::spawn(async move {
         loop {
-            let c = Arc::clone(&counters_for_summary);
-            let handle = tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(summary_every).await;
-                    let interval_txs    = c.interval_transactions.swap(0, Ordering::Relaxed);
-                    let interval_alerts = c.interval_alerts.swap(0, Ordering::Relaxed);
-                    info!(
-                        contracts             = n_contracts,
-                        transactions_total    = c.transactions.load(Ordering::Relaxed),
-                        alerts_total          = c.alerts.load(Ordering::Relaxed),
-                        transactions_interval = interval_txs,
-                        alerts_interval       = interval_alerts,
-                        "60-second summary"
-                    );
-                }
-            });
-            if let Err(e) = handle.await {
-                error!(error = ?e, "summary logger panicked — restarting");
-            }
+            tokio::time::sleep(summary_every).await;
+            let interval_txs    = counters_for_summary.interval_transactions.swap(0, Ordering::Relaxed);
+            let interval_alerts = counters_for_summary.interval_alerts.swap(0, Ordering::Relaxed);
+            info!(
+                contracts             = n_contracts,
+                transactions_total    = counters_for_summary.transactions.load(Ordering::Relaxed),
+                alerts_total          = counters_for_summary.alerts.load(Ordering::Relaxed),
+                transactions_interval = interval_txs,
+                alerts_interval       = interval_alerts,
+                "60-second summary"
+            );
         }
     });
 

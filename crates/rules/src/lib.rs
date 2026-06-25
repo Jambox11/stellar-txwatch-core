@@ -32,6 +32,9 @@ pub struct HorizonTransaction {
     pub envelope_xdr: Option<String>,
     /// Base64-encoded XDR transaction result.
     pub result_xdr: Option<String>,
+    /// Source account address for this transaction.
+    #[serde(default)]
+    pub source_account: Option<String>,
 }
 
 // ── Enriched transaction ──────────────────────────────────────────────────────
@@ -55,6 +58,8 @@ pub struct EnrichedTransaction {
     pub amount_stroops: Option<u64>,
     /// Fee charged for this transaction in stroops.
     pub fee_charged_stroops: Option<u64>,
+    /// Source account address for this transaction.
+    pub source_account: Option<String>,
 }
 
 impl EnrichedTransaction {
@@ -84,6 +89,7 @@ impl EnrichedTransaction {
                     .as_deref()
                     .and_then(|s| s.parse::<u64>().ok())
             }),
+            source_account: tx.source_account,
         })
     }
 }
@@ -205,6 +211,34 @@ fn eval_rule(rule: &AlertRule, tx: &EnrichedTransaction) -> Result<bool> {
             .fee_charged_stroops
             .map(|f| f >= *threshold_stroops)
             .unwrap_or(false),
+
+        AlertRule::SourceAccountMatch { account_ids, match_mode } => {
+            use txwatch_config::MatchMode;
+            match tx.source_account {
+                Some(ref source) => {
+                    let matches = account_ids.iter().any(|id| id == source);
+                    match match_mode {
+                        MatchMode::Any => matches,
+                        MatchMode::None => !matches,
+                    }
+                }
+                None => false,
+            }
+        }
+
+        AlertRule::FunctionCalledWithAmount { function_name, threshold_xlm } => {
+            let threshold_stroops = threshold_xlm
+                .checked_mul(10_000_000)
+                .context("threshold_xlm overflow when converting to stroops")?;
+            let function_match = tx
+                .function_names
+                .iter()
+                .any(|f| f.to_lowercase() == function_name.to_lowercase());
+            let amount_match = tx.amount_stroops
+                .map(|s| s >= threshold_stroops)
+                .unwrap_or(false);
+            function_match && amount_match
+        }
     })
 }
 
@@ -229,6 +263,17 @@ fn rule_label(rule: &AlertRule) -> String {
                 format!("HighFee(>={} stroops)", threshold_stroops)
             }
         }
+        AlertRule::SourceAccountMatch { account_ids, match_mode } => {
+            use txwatch_config::MatchMode;
+            let mode_str = match match_mode {
+                MatchMode::Any => "any",
+                MatchMode::None => "none",
+            };
+            format!("SourceAccountMatch({}, mode={})", account_ids.join("|"), mode_str)
+        }
+        AlertRule::FunctionCalledWithAmount { function_name, threshold_xlm } => {
+            format!("FunctionCalledWithAmount({}>={}XLM)", function_name, threshold_xlm)
+        }
     }
 }
 
@@ -240,6 +285,8 @@ fn rule_type(rule: &AlertRule) -> String {
         AlertRule::FunctionCalled { .. } => "FunctionCalled".into(),
         AlertRule::AdminFunctionCalled { .. } => "AdminFunctionCalled".into(),
         AlertRule::HighFee { .. } => "HighFee".into(),
+        AlertRule::SourceAccountMatch { .. } => "SourceAccountMatch".into(),
+        AlertRule::FunctionCalledWithAmount { .. } => "FunctionCalledWithAmount".into(),
     }
 }
 
@@ -275,6 +322,7 @@ mod tests {
             function_names: function_names.iter().map(|s| s.to_string()).collect(),
             amount_stroops,
             fee_charged_stroops: None,
+            source_account: None,
         }
     }
 
